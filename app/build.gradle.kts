@@ -45,4 +45,15 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+
+    // Retrofit for API calls
+    implementation (libs.retrofit)
+    implementation (libs.converter.gson)
+
+    // Coroutines
+    implementation (libs.kotlinx.coroutines.android)
+
+    // Lifecycle components
+    implementation (libs.androidx.lifecycle.livedata.ktx)
+    implementation (libs.androidx.lifecycle.viewmodel.ktx)
 }
