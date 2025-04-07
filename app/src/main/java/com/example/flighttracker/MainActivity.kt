@@ -27,7 +27,7 @@ class MainActivity : AppCompatActivity() {
             if (flightNumber.isNotEmpty()) {
                 trackFlight(flightNumber)
             } else {
-                showError("Please enter a flight number")
+                showError("✈️ Please enter a flight number")
             }
         }
     }
@@ -47,7 +47,7 @@ class MainActivity : AppCompatActivity() {
 
                 handleApiResponse(response)
             } catch (e: Exception) {
-                showError("Network error: ${e.message}")
+                showError("⚠️ Network error: ${e.message}")
             } finally {
                 binding.progressBar.visibility = View.GONE
             }
@@ -60,10 +60,10 @@ class MainActivity : AppCompatActivity() {
             if (flightResponse?.data != null && flightResponse.data.isNotEmpty()) {
                 updateUI(flightResponse.data[0])
             } else {
-                showError("No flight data found")
+                showError("🔍 No flight data found")
             }
         } else {
-            showError("API error: ${response.code()} - ${response.message()}")
+            showError("⚠️ API error: ${response.code()} - ${response.message()}")
         }
     }
 
@@ -73,50 +73,50 @@ class MainActivity : AppCompatActivity() {
 
         with(flightData) {
             // Basic flight info
-            binding.flightNumberText.text = "Flight: ${flight?.iata ?: "N/A"}"
-            binding.airlineText.text = "Airline: ${airline?.name ?: "N/A"} (${airline?.iata ?: ""})"
+            binding.flightNumberText.text = "✈️ Flight: ${flight?.iata ?: "N/A"}"
+            binding.airlineText.text = "🏛️ Airline: ${airline?.name ?: "N/A"} (${airline?.iata ?: ""})"
 
             // Departure info (with IST adjustment)
             binding.departureText.text = """
-                Departure:
-                Airport: ${departure?.airport ?: "N/A"} (${departure?.iata ?: ""})
-                Terminal: ${departure?.terminal ?: "N/A"}, Gate: ${departure?.gate ?: "N/A"}
-                Scheduled: ${adjustTimeForIST(departure?.scheduled)}
-                Estimated: ${adjustTimeForIST(departure?.estimated)}
-                Actual: ${adjustTimeForIST(departure?.actual)}
-                Delay: ${departure?.delay ?: 0} min
+                🛫 Departure:
+                🏢 Airport: ${departure?.airport ?: "N/A"} (${departure?.iata ?: ""})
+                🚪 Terminal: ${departure?.terminal ?: "N/A"}, Gate: ${departure?.gate ?: "N/A"}
+                🕒 Scheduled: ${adjustTimeForIST(departure?.scheduled)}
+                ⏳ Estimated: ${adjustTimeForIST(departure?.estimated)}
+                ✅ Actual: ${adjustTimeForIST(departure?.actual)}
+                ⏰ Delay: ${departure?.delay ?: 0} min
             """.trimIndent()
 
             // Arrival info (with IST adjustment)
             binding.arrivalText.text = """
-                Arrival:
-                Airport: ${arrival?.airport ?: "N/A"} (${arrival?.iata ?: ""})
-                Terminal: ${arrival?.terminal ?: "N/A"}, Gate: ${arrival?.gate ?: "N/A"}
-                Scheduled: ${adjustTimeForIST(arrival?.scheduled)}
-                Estimated: ${adjustTimeForIST(arrival?.estimated)}
-                Actual: ${adjustTimeForIST(arrival?.actual)}
-                Delay: ${arrival?.delay ?: 0} min
+                🛬 Arrival:
+                🏢 Airport: ${arrival?.airport ?: "N/A"} (${arrival?.iata ?: ""})
+                🚪 Terminal: ${arrival?.terminal ?: "N/A"}, Gate: ${arrival?.gate ?: "N/A"}
+                🕒 Scheduled: ${adjustTimeForIST(arrival?.scheduled)}
+                ⏳ Estimated: ${adjustTimeForIST(arrival?.estimated)}
+                ✅ Actual: ${adjustTimeForIST(arrival?.actual)}
+                ⏰ Delay: ${arrival?.delay ?: 0} min
             """.trimIndent()
 
             // Flight status
-            binding.statusText.text = "Status: ${flight_status?.replace("_", " ")?.capitalize() ?: "N/A"}"
+            binding.statusText.text = "📊 Status: ${flight_status?.replace("_", " ")?.capitalize() ?: "N/A"}"
 
             // Live data (without time adjustment)
             binding.locationText.text = if (live != null) {
                 """
-                Live Tracking:
-                Updated: ${formatTime(live.updated)} IST
-                Position: ${"%.4f".format(live.latitude)}, ${"%.4f".format(live.longitude)}
-                Altitude: ${live.altitude?.toInt()?.convertMetersToFeet() ?: 0} ft
-                Speed: ${live.speed_horizontal?.toInt()?.convertKphToKnots() ?: 0} kts
-                Direction: ${live.direction?.toInt() ?: 0}°
+                🛰️ Live Tracking:
+                🔄 Updated: ${formatTime(live.updated)} IST
+                📍 Position: ${"%.4f".format(live.latitude)}, ${"%.4f".format(live.longitude)}
+                ⬆️ Altitude: ${live.altitude?.toInt()?.convertMetersToFeet() ?: 0} ft
+                🚀 Speed: ${live.speed_horizontal?.toInt()?.convertKphToKnots() ?: 0} kts
+                🧭 Direction: ${live.direction?.toInt() ?: 0}°
                 """.trimIndent()
             } else {
-                "Live tracking data not available"
+                "📡 Live tracking data not available"
             }
         }
 
-        binding.lastUpdatedText.text = "Last updated: ${getCurrentFormattedTime()}"
+        binding.lastUpdatedText.text = "⏱️ Last updated: ${getCurrentFormattedTime()}"
     }
 
     private fun adjustTimeForIST(apiTime: String?): String {
