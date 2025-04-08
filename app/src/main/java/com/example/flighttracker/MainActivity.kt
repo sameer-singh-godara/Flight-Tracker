@@ -2,24 +2,54 @@ package com.example.flighttracker
 
 import android.annotation.SuppressLint
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.example.flighttracker.databinding.ActivityMainBinding
-import com.example.flighttracker.db.FlightStatsDao
 import com.example.flighttracker.db.FlightStatsEntity
-import com.example.flighttracker.db.RouteHistory
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import retrofit2.Response
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.work.*
+import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private val apiClient = AviationStackApi.create()
-    private val apiKey = "439f32d72667d96dc71e0533e7ca122d"
+    private val apiKeys = listOf(
+        "439f32d72667d96dc71e0533e7ca122d", // Replace with your additional API keys if needed
+        "f9bc28d79ae8197e390ad292024308ba",
+        "2876a088a6f920f2aac06fd11900fdca",
+        "3d28600beb658bb095eb99c8fd8e3c0d",
+        "51bb2bbeb46827ef8e718f983238c93c",
+        "7dd8aa39712ef1683256797638f9eb4a",
+        "4612de52ed33e2a6d678ad88d1ae1be2",
+        "39eaad1ca5d0a008e09f3ee801265335",
+        "f617496f9aad38f5ee8181b5b5494278",
+        "77c311182be949ca37f66f4ec8f7cb8f",
+        "e1717c38a511f74d4b633cef4b637d0c",
+        "4863e8c7e213654ad908c7a999b2dcbf",
+        "699ae730fec5c6b77c5c114614f1ae09",
+        "635288c2b1d2207ef7fab743b3532190",
+        "435fab4c7dc93ffe17b78ab0af30523e",
+        "ffa45e5f83873df2a695f42cb1dfb201",
+        "6c80eb4f9c0cbf0446c5d707e1ece7d9",
+        "3e045e2a3df6e5b8057f1fc5ecf7b445",
+        "8a789705113d3852063a34449dc14e23",
+        "d0eac1281011f89a5263262c3a317486",
+        "ca8c9e8b8a9b4112e7b6af74c08f9c00",
+    )
+    private var currentApiKeyIndex = 0
     private val db by lazy { FlightTrackerApp.database.flightStatsDao() }
+    private var flightRefreshHandler: Handler? = null
+    private var flightRefreshRunnable: Runnable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,6 +61,11 @@ class MainActivity : AppCompatActivity() {
         binding.historyButton.setOnClickListener { showHistory() }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        stopFlightRefresh() // Clean up Handler to prevent memory leaks
+    }
+
     private fun trackFlight() {
         val flightNumber = binding.flightNumberInput.text.toString().trim()
         if (flightNumber.isNotEmpty()) {
@@ -39,18 +74,42 @@ class MainActivity : AppCompatActivity() {
             binding.flightDetailsContainer.visibility = View.GONE
 
             lifecycleScope.launch {
-                try {
-                    val response = apiClient.getFlightData(
-                        apiKey = apiKey,
-                        flightNumber = flightNumber,
-                        limit = 1
-                    )
-                    handleApiResponse(response)
-                } catch (e: Exception) {
-                    showError("⚠️ Network error: ${e.message}")
-                } finally {
-                    binding.progressBar.visibility = View.GONE
+                var success = false
+                var attempt = 0
+                while (!success && attempt < apiKeys.size) {
+                    try {
+                        val response = apiClient.getFlightData(apiKey = getCurrentApiKey(), flightNumber = flightNumber, limit = 1)
+                        if (response.isSuccessful) {
+                            val flightResponse = response.body()
+                            if (flightResponse?.data != null && flightResponse.data.isNotEmpty()) {
+                                updateUI(flightResponse.data[0])
+                                // Start Handler for 1-minute refresh
+                                startFlightRefresh(flightNumber)
+                                success = true
+                            } else {
+                                showError("🔍 No flight data found")
+                                success = true // Stop retrying if no data is found
+                            }
+                        } else {
+                            // Switch to next API key on any API error
+                            switchToNextApiKey()
+                            attempt++
+                            if (attempt == apiKeys.size) {
+                                showError("⚠️ Failed to track flight $flightNumber. All API keys exhausted.")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        if (attempt == apiKeys.size - 1) {
+                            showError("⚠️ Network error: ${e.message}. All API keys exhausted.")
+                        }
+                        switchToNextApiKey()
+                        attempt++
+                    }
                 }
+                if (!success && attempt == apiKeys.size) {
+                    showError("⚠️ Failed to track flight $flightNumber. All API keys exhausted.")
+                }
+                binding.progressBar.visibility = View.GONE
             }
         } else {
             showError("✈️ Please enter a flight number")
@@ -65,40 +124,160 @@ class MainActivity : AppCompatActivity() {
             binding.flightDetailsContainer.visibility = View.GONE
 
             lifecycleScope.launch {
-                try {
-                    val initialResponse = apiClient.getFlightData(
-                        apiKey = apiKey,
-                        flightNumber = flightNumber,
-                        limit = 1
-                    )
-                    if (initialResponse.isSuccessful) {
-                        val flightResponse = initialResponse.body()
-                        val flightData = flightResponse?.data?.firstOrNull()
-                        val depIata = flightData?.departure?.iata
-                        val arrIata = flightData?.arrival?.iata
-                        if (depIata != null && arrIata != null) {
-                            val statsResponse = apiClient.getFlightData(
-                                apiKey = apiKey,
-                                departureAirport = depIata,
-                                arrivalAirport = arrIata,
-                                limit = 5
-                            )
-                            handleStatsResponse(statsResponse, depIata, arrIata)
+                var success = false
+                var attempt = 0
+                while (!success && attempt < apiKeys.size) {
+                    try {
+                        val initialResponse = apiClient.getFlightData(apiKey = getCurrentApiKey(), flightNumber = flightNumber, limit = 1)
+                        if (initialResponse.isSuccessful) {
+                            val flightResponse = initialResponse.body()
+                            val flightData = flightResponse?.data?.firstOrNull()
+                            val depIata = flightData?.departure?.iata
+                            val arrIata = flightData?.arrival?.iata
+                            if (depIata != null && arrIata != null) {
+                                val statsResponse = apiClient.getFlightData(
+                                    apiKey = getCurrentApiKey(),
+                                    departureAirport = depIata,
+                                    arrivalAirport = arrIata,
+                                    limit = 5
+                                )
+                                if (statsResponse.isSuccessful) {
+                                    val flightResponse = statsResponse.body()
+                                    if (flightResponse?.data != null && flightResponse.data.isNotEmpty()) {
+                                        val flightDataList = flightResponse.data.take(5)
+                                        saveFlightStats(flightDataList)
+                                        val (averageTime, averageDelay) = calculateRouteStats(flightDataList)
+                                        updateStatsUI(averageTime, averageDelay, depIata, arrIata, flightDataList)
+                                        // Schedule background job for route stats
+                                        scheduleRouteStatsJob(depIata, arrIata)
+                                        success = true
+                                    } else {
+                                        showError("🔍 No flight data found for stats")
+                                        success = true // Stop retrying if no data is found
+                                    }
+                                } else {
+                                    // Switch to next API key on stats API error
+                                    switchToNextApiKey()
+                                    attempt++
+                                    if (attempt == apiKeys.size) {
+                                        showError("⚠️ Failed to fetch route stats for $flightNumber. All API keys exhausted.")
+                                    }
+                                }
+                            } else {
+                                showError("🔍 Departure or arrival IATA not found")
+                                success = true // Stop retrying if IATA is invalid
+                            }
                         } else {
-                            showError("🔍 Departure or arrival IATA not found")
+                            // Switch to next API key on initial API error
+                            switchToNextApiKey()
+                            attempt++
+                            if (attempt == apiKeys.size) {
+                                showError("⚠️ Failed to fetch route stats for $flightNumber. All API keys exhausted.")
+                            }
                         }
-                    } else {
-                        showError("⚠️ Initial API error: ${initialResponse.code()}")
+                    } catch (e: Exception) {
+                        if (attempt == apiKeys.size - 1) {
+                            showError("⚠️ Network error: ${e.message}. All API keys exhausted.")
+                        }
+                        switchToNextApiKey()
+                        attempt++
                     }
-                } catch (e: Exception) {
-                    showError("⚠️ Network error: ${e.message}")
-                } finally {
-                    binding.progressBar.visibility = View.GONE
                 }
+                if (!success && attempt == apiKeys.size) {
+                    showError("⚠️ Failed to fetch route stats for $flightNumber. All API keys exhausted.")
+                }
+                binding.progressBar.visibility = View.GONE
             }
         } else {
             showError("✈️ Please enter a flight number")
         }
+    }
+
+    private fun getCurrentApiKey(): String {
+        return apiKeys[currentApiKeyIndex]
+    }
+
+    private fun switchToNextApiKey() {
+        currentApiKeyIndex = (currentApiKeyIndex + 1) % apiKeys.size
+        Log.d("API", "Switched to API key index $currentApiKeyIndex")
+    }
+
+    private fun startFlightRefresh(flightNumber: String) {
+        stopFlightRefresh() // Clean up any existing refresh before starting a new one
+        flightRefreshHandler = Handler(Looper.getMainLooper())
+        flightRefreshRunnable = Runnable {
+            lifecycleScope.launch {
+                refreshFlightData(flightNumber)
+                // Schedule the next refresh after 1 minute
+                flightRefreshHandler?.postDelayed(flightRefreshRunnable!!, 60000) // 60000 ms = 1 minute
+            }
+        }
+        flightRefreshHandler?.post(flightRefreshRunnable!!)
+    }
+
+    private suspend fun refreshFlightData(flightNumber: String) {
+        // Show loading screen before refreshing
+        binding.progressBar.visibility = View.VISIBLE
+        binding.errorText.visibility = View.GONE
+
+        var success = false
+        var attempt = 0
+        while (!success && attempt < apiKeys.size) {
+            try {
+                // Move API call to background thread to avoid blocking UI
+                val response = withContext(Dispatchers.IO) {
+                    apiClient.getFlightData(apiKey = getCurrentApiKey(), flightNumber = flightNumber, limit = 1)
+                }
+                if (response.isSuccessful) {
+                    val flightResponse = response.body()
+                    if (flightResponse?.data != null && flightResponse.data.isNotEmpty()) {
+                        updateUI(flightResponse.data[0])
+                        success = true
+                    } else {
+                        showError("🔍 No flight data found during refresh")
+                        success = true
+                    }
+                } else {
+                    switchToNextApiKey()
+                    attempt++
+                    if (attempt == apiKeys.size) {
+                        showError("⚠️ Failed to refresh flight $flightNumber. All API keys exhausted.")
+                    }
+                }
+            } catch (e: Exception) {
+                if (attempt == apiKeys.size - 1) {
+                    showError("⚠️ Network error during refresh: ${e.message}. All API keys exhausted.")
+                }
+                switchToNextApiKey()
+                attempt++
+            }
+        }
+        // Hide loading screen after refresh attempt
+        binding.progressBar.visibility = View.GONE
+    }
+
+    private fun stopFlightRefresh() {
+        flightRefreshHandler?.removeCallbacks(flightRefreshRunnable!!)
+        flightRefreshHandler = null
+        flightRefreshRunnable = null
+    }
+
+    private fun scheduleRouteStatsJob(depIata: String, arrIata: String) {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        // Route stats interval remains 1 day
+        val workRequest = PeriodicWorkRequestBuilder<RouteStatsWorker>(1, TimeUnit.DAYS)
+            .setConstraints(constraints)
+            .setInputData(workDataOf("depIata" to depIata, "arrIata" to arrIata, "apiKey" to getCurrentApiKey()))
+            .build()
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "routeStats_$depIata$arrIata",
+            ExistingPeriodicWorkPolicy.REPLACE,
+            workRequest
+        )
     }
 
     private fun showHistory() {
@@ -168,7 +347,7 @@ class MainActivity : AppCompatActivity() {
                 val depIata = flight.departure?.iata ?: ""
                 val arrIata = flight.arrival?.iata ?: ""
                 val duration = calculateFlightDuration(flight)
-                val delay = flight.departure?.delay ?: 0
+                val delay = flight.departure?.delay ?: flight.arrival?.delay ?: 0
                 val stats = FlightStatsEntity(
                     route = "$depIata-$arrIata",
                     durationMinutes = duration,
@@ -184,7 +363,7 @@ class MainActivity : AppCompatActivity() {
         val depTime = flight.departure?.scheduled?.let { parseTime(it) }
         val arrTime = flight.arrival?.scheduled?.let { parseTime(it) }
         return if (depTime != null && arrTime != null) {
-            ((arrTime.time - depTime.time) / (1000 * 60)).toInt()
+            ((arrTime.time - depTime.time) / (1000 * 60)).toInt() + (flight.departure?.delay ?: 0) + (flight.arrival?.delay ?: 0)
         } else 0
     }
 
