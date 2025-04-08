@@ -83,7 +83,7 @@ class MainActivity : AppCompatActivity() {
                             val flightResponse = response.body()
                             if (flightResponse?.data != null && flightResponse.data.isNotEmpty()) {
                                 updateUI(flightResponse.data[0])
-                                // Start Handler for 1-minute refresh
+                                // Start Handler for 1-minute refresh with initial delay
                                 startFlightRefresh(flightNumber)
                                 success = true
                             } else {
@@ -148,7 +148,7 @@ class MainActivity : AppCompatActivity() {
                                         saveFlightStats(flightDataList)
                                         val (averageTime, averageDelay) = calculateRouteStats(flightDataList)
                                         updateStatsUI(averageTime, averageDelay, depIata, arrIata, flightDataList)
-                                        // Schedule background job for route stats
+                                        // Schedule background job for route stats with initial delay
                                         scheduleRouteStatsJob(depIata, arrIata)
                                         success = true
                                     } else {
@@ -212,7 +212,8 @@ class MainActivity : AppCompatActivity() {
                 flightRefreshHandler?.postDelayed(flightRefreshRunnable!!, 60000) // 60000 ms = 1 minute
             }
         }
-        flightRefreshHandler?.post(flightRefreshRunnable!!)
+        // Start the first refresh after 1 minute to avoid immediate extra call
+        flightRefreshHandler?.postDelayed(flightRefreshRunnable!!, 60000)
     }
 
     private suspend fun refreshFlightData(flightNumber: String) {
@@ -267,9 +268,10 @@ class MainActivity : AppCompatActivity() {
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
-        // Route stats interval remains 1 day
+        // Route stats interval remains 1 day with initial delay
         val workRequest = PeriodicWorkRequestBuilder<RouteStatsWorker>(1, TimeUnit.DAYS)
             .setConstraints(constraints)
+            .setInitialDelay(1, TimeUnit.DAYS) // Delay first execution by 1 day
             .setInputData(workDataOf("depIata" to depIata, "arrIata" to arrIata, "apiKey" to getCurrentApiKey()))
             .build()
 
